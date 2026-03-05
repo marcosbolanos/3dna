@@ -11,6 +11,9 @@ dependencies = [
     "trimesh>=4.11.2",
 ]
 
+[project.scripts]
+threedna-watertight = "threedna.mesh_io.watertight_helper:main"
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 
