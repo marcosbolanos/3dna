@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import numpy as np
 import pytest
 import trimesh
 
@@ -52,3 +53,38 @@ def test_loader_warns_for_non_watertight_mesh(
     assert "\033[31m" in stderr
     assert "not watertight" in stderr
     assert "included watertight helper tool" in stderr
+
+
+def test_loader_scales_mesh_using_axis_calibration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_mesh = trimesh.creation.box(extents=[2.0, 4.0, 6.0])
+
+    def fake_load(_: Path) -> trimesh.Trimesh:
+        return source_mesh
+
+    monkeypatch.setattr(model_loader.trimesh, "load", fake_load)
+
+    loaded = model_loader.load_3d_model(
+        Path("dummy.glb"),
+        scale_axis="x",
+        target_length_nm=20.0,
+    )
+
+    extents = np.asarray(loaded.bounding_box.extents)
+    assert np.isclose(extents[0], 20.0)
+    assert np.allclose(extents, np.array([20.0, 40.0, 60.0]))
+
+
+def test_loader_rejects_partial_scaling_params(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    watertight_mesh = trimesh.creation.box()
+
+    def fake_load(_: Path) -> trimesh.Trimesh:
+        return watertight_mesh
+
+    monkeypatch.setattr(model_loader.trimesh, "load", fake_load)
+
+    with pytest.raises(ValueError, match="provided together"):
+        model_loader.load_3d_model(Path("dummy.glb"), scale_axis="z")
