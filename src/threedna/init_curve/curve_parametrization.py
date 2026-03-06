@@ -1,10 +1,14 @@
 from dataclasses import dataclass
 
 import numpy as np
+import trimesh
+
+from threedna.surface_projection import project_points_to_mesh
 
 
 @dataclass(frozen=True)
 class ClosedCurveParam:
+    mesh: trimesh.Trimesh
     center: np.ndarray
     cos_coeffs: np.ndarray
     sin_coeffs: np.ndarray
@@ -27,7 +31,15 @@ def _as_points(curve: np.ndarray) -> np.ndarray:
     return points
 
 
+def _project_points_to_mesh(mesh: trimesh.Trimesh, points: np.ndarray) -> np.ndarray:
+    query = np.asarray(points, dtype=np.float64)
+    if query.ndim != 2 or query.shape[1] != 3:
+        raise ValueError("points must have shape (n_points, 3)")
+    return project_points_to_mesh(mesh, query)
+
+
 def fit_closed_curve_parametrization(
+    mesh: trimesh.Trimesh,
     curve: np.ndarray,
     *,
     n_harmonics: int = 8,
@@ -41,6 +53,7 @@ def fit_closed_curve_parametrization(
         raise ValueError("n_harmonics must be >= 1")
 
     points = _as_points(curve)
+    points = _project_points_to_mesh(mesh, points)
     n_points = len(points)
     if n_harmonics >= n_points // 2:
         raise ValueError("n_harmonics is too high for the number of samples")
@@ -56,7 +69,12 @@ def fit_closed_curve_parametrization(
     center = coeffs[0]
     cos_coeffs = coeffs[1::2]
     sin_coeffs = coeffs[2::2]
-    return ClosedCurveParam(center=center, cos_coeffs=cos_coeffs, sin_coeffs=sin_coeffs)
+    return ClosedCurveParam(
+        mesh=mesh,
+        center=center,
+        cos_coeffs=cos_coeffs,
+        sin_coeffs=sin_coeffs,
+    )
 
 
 def sample_closed_curve(
@@ -77,7 +95,8 @@ def sample_closed_curve(
         points += np.cos(k * t)[:, None] * param.cos_coeffs[idx][None, :]
         points += np.sin(k * t)[:, None] * param.sin_coeffs[idx][None, :]
 
-    return points.T.astype(np.float32)
+    projected = _project_points_to_mesh(param.mesh, points)
+    return projected.T.astype(np.float32)
 
 
 def discrete_curvature(points_3xn: np.ndarray, eps: float = 1e-8) -> np.ndarray:

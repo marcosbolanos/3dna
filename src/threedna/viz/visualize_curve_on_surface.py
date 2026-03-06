@@ -6,6 +6,7 @@ import numpy as np
 import trimesh
 from trimesh.visual.color import ColorVisuals
 
+from threedna.geodesic_curve import reconstruct_geodesic_curve_on_mesh
 from threedna import paths
 from threedna.init_curve.initialize_ring import initialize_ring_on_surface
 from threedna.mesh_io.model_loader import load_3d_model
@@ -27,10 +28,17 @@ def _curve_points(curve: np.ndarray) -> np.ndarray:
 
 
 def build_curve_on_surface_scene(
-    mesh: trimesh.Trimesh, curve: np.ndarray
+    mesh: trimesh.Trimesh,
+    curve: np.ndarray,
+    *,
+    geodesic_reconstruction: bool = True,
 ) -> trimesh.Scene:
     points = _curve_points(curve)
-    closed = np.vstack([points, points[0]])
+    if geodesic_reconstruction:
+        geodesic_path = reconstruct_geodesic_curve_on_mesh(mesh, points)
+        closed = geodesic_path.points
+    else:
+        closed = np.vstack([points, points[0]])
 
     mesh_geom = mesh.copy()
     mesh_geom.visual = ColorVisuals(
@@ -50,9 +58,15 @@ def render_curve_on_surface(
     mesh: trimesh.Trimesh,
     curve: np.ndarray,
     output_glb: Path,
+    *,
+    geodesic_reconstruction: bool = True,
 ) -> Path:
     output_glb.parent.mkdir(parents=True, exist_ok=True)
-    scene = build_curve_on_surface_scene(mesh=mesh, curve=curve)
+    scene = build_curve_on_surface_scene(
+        mesh=mesh,
+        curve=curve,
+        geodesic_reconstruction=geodesic_reconstruction,
+    )
     scene.export(output_glb)
     return output_glb
 
@@ -86,6 +100,11 @@ def main() -> None:
         default=None,
         help="Optional target size along scale-axis in nm",
     )
+    parser.add_argument(
+        "--straight-segments",
+        action="store_true",
+        help="Disable geodesic segment reconstruction for rendering",
+    )
     args = parser.parse_args()
 
     mesh = load_3d_model(
@@ -103,6 +122,7 @@ def main() -> None:
         mesh=mesh,
         curve=ring,
         output_glb=output_dir / "curve_on_surface.glb",
+        geodesic_reconstruction=not args.straight_segments,
     )
     np.save(output_dir / "initialized_ring.npy", ring)
 

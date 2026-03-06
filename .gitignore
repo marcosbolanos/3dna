@@ -1,3 +1,6 @@
+# Example repo
+example/
+
 # data
 outputs/
 !outputs/.gitkeep
