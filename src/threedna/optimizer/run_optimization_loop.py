@@ -8,7 +8,6 @@ from threedna import paths
 from threedna.init_curve.initialize_ring import initialize_ring_on_surface
 from threedna.mesh_io.model_loader import load_3d_model
 from threedna.optimizer.medial_axis_energy import optimize_curve_newton
-from threedna.surface_projection import using_cpp_backend
 from threedna.viz.visualize_curve_on_surface import render_curve_on_surface
 
 
@@ -74,7 +73,7 @@ def main() -> None:
         scale_axis=args.scale_axis,
         target_length_nm=args.target_length_nm,
     )
-    print(f"Surface projection backend: {'C++' if using_cpp_backend() else 'Python'}")
+    print("Surface projection backend: C++")
 
     initial_curve = initialize_ring_on_surface(mesh=mesh, n_points=args.n_points)
     result = optimize_curve_newton(

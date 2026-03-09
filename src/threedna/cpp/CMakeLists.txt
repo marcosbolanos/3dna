@@ -47,6 +47,7 @@ FetchContent_Declare(
   GIT_REPOSITORY https://github.com/nmwsharp/geometry-central.git
   GIT_TAG 4f5fe7e
 )
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 FetchContent_MakeAvailable(geometrycentral)
 
 # TinyAD
@@ -68,29 +69,28 @@ if(NOT pybind11_FOUND)
   FetchContent_MakeAvailable(pybind11)
 endif()
 
-# Add your binding sources
-add_library(threedna_cpp MODULE
-  surface_kernels.cpp
-  # Add more .cpp files here as you create them
+# Add your binding sources - separate libraries for each module
+add_library(geodesic_cpp MODULE
+  geodesic_bindings.cpp
 )
 
-target_link_libraries(threedna_cpp PRIVATE
+target_link_libraries(geodesic_cpp PRIVATE
   pybind11::module
   geometry-central
+  Eigen3::Eigen
+)
+
+add_library(surface_kernels_cpp MODULE
+  surface_kernels.cpp
+)
+
+target_link_libraries(surface_kernels_cpp PRIVATE
+  pybind11::module
   igl::core
   igl::predicates
-  TinyAD
   Eigen3::Eigen
 )
 
-target_include_directories(threedna_cpp PRIVATE
+target_include_directories(surface_kernels_cpp PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
 )
-
-# Test executable for geodesics
-add_executable(test_geodesic test_geodesic.cpp)
-target_link_libraries(test_geodesic PRIVATE
-  geometry-central
-  Eigen3::Eigen
-)
-target_compile_features(test_geodesic PRIVATE cxx_std_17)

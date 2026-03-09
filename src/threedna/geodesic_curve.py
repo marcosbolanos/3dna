@@ -1,11 +1,10 @@
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.sparse import csr_matrix
-from scipy.sparse import csgraph
 import trimesh
 
 from threedna.surface_projection import project_points_to_mesh
+from threedna._geodesic_cpp import GeodesicMesh as _GeodesicMesh
 
 
 @dataclass(frozen=True)
@@ -29,39 +28,34 @@ def _as_curve_points(curve: np.ndarray) -> np.ndarray:
     return points
 
 
-def _mesh_edge_graph(mesh: trimesh.Trimesh) -> csr_matrix:
-    edges = np.asarray(mesh.edges_unique, dtype=np.int64)
-    lengths = np.asarray(mesh.edges_unique_length, dtype=np.float64)
-    n_vertices = len(mesh.vertices)
-    if len(edges) == 0:
-        raise ValueError("mesh has no edges")
-
-    row = np.concatenate([edges[:, 0], edges[:, 1]])
-    col = np.concatenate([edges[:, 1], edges[:, 0]])
-    data = np.concatenate([lengths, lengths])
-    return csr_matrix((data, (row, col)), shape=(n_vertices, n_vertices))
-
-
-def _recover_vertex_path(
-    predecessors: np.ndarray,
+def _trace_exact_geodesic_path(
+    geodesic_mesh: _GeodesicMesh,
     source_idx: int,
     target_idx: int,
+    vertex_positions: np.ndarray,
 ) -> np.ndarray:
-    if source_idx == target_idx:
-        return np.array([source_idx], dtype=np.int64)
+    """Trace exact geodesic path between two vertices using C++ MMP algorithm."""
+    path = geodesic_mesh.trace_path(source_idx, target_idx)
 
-    current = target_idx
-    reverse_path = [current]
-    max_steps = len(predecessors) + 1
-    for _ in range(max_steps):
-        current = int(predecessors[current])
-        if current < 0:
-            return np.array([source_idx, target_idx], dtype=np.int64)
-        reverse_path.append(current)
-        if current == source_idx:
-            break
-    reverse_path.reverse()
-    return np.asarray(reverse_path, dtype=np.int64)
+    points = []
+    for typ, idx, bary in path:
+        if typ == 0:
+            points.append(vertex_positions[idx])
+        elif typ == 1:
+            edge_vertices = geodesic_mesh.edge_vertex_indices()[idx]
+            p0 = vertex_positions[edge_vertices[0]]
+            p1 = vertex_positions[edge_vertices[1]]
+            point = (1 - bary[0]) * p0 + bary[0] * p1
+            points.append(point)
+        elif typ == 2:
+            face_vertices = geodesic_mesh.face_vertex_indices()[idx]
+            p0 = vertex_positions[face_vertices[0]]
+            p1 = vertex_positions[face_vertices[1]]
+            p2 = vertex_positions[face_vertices[2]]
+            point = bary[0] * p0 + bary[1] * p1 + bary[2] * p2
+            points.append(point)
+
+    return np.array(points, dtype=np.float64)
 
 
 def reconstruct_geodesic_curve_on_mesh(
@@ -69,10 +63,8 @@ def reconstruct_geodesic_curve_on_mesh(
     curve: np.ndarray,
 ) -> GeodesicCurvePath:
     """
-    Reconstruct a closed curve as mesh-edge geodesic paths between consecutive nodes.
-
-    This is an edge-graph geodesic approximation: each segment is a shortest path
-    on the mesh vertex graph.
+    Reconstruct a closed curve as exact geodesic paths between consecutive nodes.
+    Uses the MMP exact geodesic algorithm from geometry-central via C++.
     """
     nodes = _as_curve_points(curve)
     projected_nodes = project_points_to_mesh(mesh, nodes)
@@ -80,30 +72,31 @@ def reconstruct_geodesic_curve_on_mesh(
     _, nearest_vertex = mesh.kdtree.query(projected_nodes)
     node_vertex_idx = np.asarray(nearest_vertex, dtype=np.int64)
 
-    graph = _mesh_edge_graph(mesh)
-    n_nodes = len(node_vertex_idx)
-    segment_vertex_paths: list[np.ndarray] = []
+    V = np.asarray(mesh.vertices, dtype=np.float64)
+    F = np.asarray(mesh.faces, dtype=np.int64)
 
+    geodesic_mesh = _GeodesicMesh(V, F)
+    vertex_positions = geodesic_mesh.vertex_positions()
+
+    segment_paths = []
+    n_nodes = len(node_vertex_idx)
     for i in range(n_nodes):
         source = int(node_vertex_idx[i])
         target = int(node_vertex_idx[(i + 1) % n_nodes])
-        _, predecessors = csgraph.dijkstra(
-            graph,
-            directed=False,
-            indices=source,
-            return_predecessors=True,
+
+        path_points = _trace_exact_geodesic_path(
+            geodesic_mesh, source, target, vertex_positions
         )
-        segment_vertex_paths.append(_recover_vertex_path(predecessors, source, target))
+        segment_paths.append(path_points)
 
-    stitched_indices = segment_vertex_paths[0].copy()
-    for path in segment_vertex_paths[1:]:
-        if len(path) == 0:
-            continue
-        stitched_indices = np.concatenate([stitched_indices, path[1:]])
+    stitched_points = np.vstack(segment_paths)
 
-    if stitched_indices[0] != stitched_indices[-1]:
-        stitched_indices = np.concatenate([stitched_indices, stitched_indices[:1]])
+    vertex_indices = []
+    for typ, idx, _ in segment_paths[0]:
+        vertex_indices.append(idx)
+    for path in segment_paths[1:]:
+        for typ, idx, _ in path[1:]:
+            vertex_indices.append(idx)
+    vertex_indices = np.array(vertex_indices, dtype=np.int64)
 
-    vertices = np.asarray(mesh.vertices, dtype=np.float64)
-    stitched_points = vertices[stitched_indices]
-    return GeodesicCurvePath(points=stitched_points, vertex_indices=stitched_indices)
+    return GeodesicCurvePath(points=stitched_points, vertex_indices=vertex_indices)
