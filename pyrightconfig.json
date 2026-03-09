@@ -1,4 +1,11 @@
 {
+  "include": ["src"],
+  "executionEnvironments": [
+    {
+      "root": "src",
+      "extraPaths": ["src"]
+    }
+  ],
   "typeCheckingMode": "strict",
   "reportUnknownMemberType": false,
   "reportUnknownVariableType": false,

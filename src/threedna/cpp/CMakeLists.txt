@@ -97,7 +97,8 @@ target_include_directories(surface_kernels_cpp PRIVATE
 
 # Copy built binaries to _bindings/ directory
 add_custom_command(
-  OUTPUT ${CMAKE_SOURCE_DIR}/../_bindings/geodesic_cpp.so
+  OUTPUT ${CMAKE_SOURCE_DIR}/../_bindings/_geodesic_cpp.so
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/../_bindings
   COMMAND ${CMAKE_COMMAND} -E copy
     ${CMAKE_BINARY_DIR}/libgeodesic_cpp.so
     ${CMAKE_SOURCE_DIR}/../_bindings/_geodesic_cpp.so
@@ -106,7 +107,8 @@ add_custom_command(
 )
 
 add_custom_command(
-  OUTPUT ${CMAKE_SOURCE_DIR}/../_bindings/surface_kernels_cpp.so
+  OUTPUT ${CMAKE_SOURCE_DIR}/../_bindings/_surface_kernels_cpp.so
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/../_bindings
   COMMAND ${CMAKE_COMMAND} -E copy
     ${CMAKE_BINARY_DIR}/libsurface_kernels_cpp.so
     ${CMAKE_SOURCE_DIR}/../_bindings/_surface_kernels_cpp.so
@@ -116,15 +118,14 @@ add_custom_command(
 
 add_custom_target(install_bindings ALL
   DEPENDS
-    ${CMAKE_SOURCE_DIR}/../_bindings/geodesic_cpp.so
-    ${CMAKE_SOURCE_DIR}/../_bindings/surface_kernels_cpp.so
+    ${CMAKE_SOURCE_DIR}/../_bindings/_geodesic_cpp.so
+    ${CMAKE_SOURCE_DIR}/../_bindings/_surface_kernels_cpp.so
   COMMENT "Installing bindings to _bindings/"
 )
 
 # Quick rebuild target - only recompiles binding .cpp files (not deps)
 add_custom_target(bindings
   DEPENDS
-    geodesic_cpp
-    surface_kernels_cpp
+    install_bindings
   COMMENT "Building bindings only (fast, uses cached deps)"
 )
