@@ -1,8 +1,8 @@
 import numpy as np
 import trimesh
 
-from threedna._surface_kernels_cpp import (
-    project_points_to_mesh as _project_points_to_mesh_cpp,
+from threedna._bindings._surface_kernels_cpp import (
+    project_points_to_mesh as _project_cpp,
 )
 
 
@@ -17,5 +17,5 @@ def project_points_to_mesh(mesh: trimesh.Trimesh, points: np.ndarray) -> np.ndar
     if len(faces) == 0:
         raise ValueError("mesh contains no triangles")
 
-    projected = _project_points_to_mesh_cpp(vertices, faces, query)
+    projected = _project_cpp(vertices, faces, query)
     return np.asarray(projected, dtype=np.float64)

@@ -44,7 +44,9 @@ def _as_points_3d(name: str, array: np.ndarray) -> np.ndarray:
     elif arr.shape[1] == 3:
         points = arr
     else:
-        raise ValueError(f"{name} must have shape (3, n_points) or (n_points, 3)")
+        raise ValueError(
+            f"{name} must have shape (3, n_points) or (n_points, 3)"
+        )
     return points
 
 
@@ -78,7 +80,11 @@ def medial_axis_energy(
             "curve, m_plus, and m_minus must have the same number of nodes"
         )
 
-    w = vertex_integration_weights(gamma) if weights is None else np.asarray(weights)
+    w = (
+        vertex_integration_weights(gamma)
+        if weights is None
+        else np.asarray(weights)
+    )
     if w.shape != (len(gamma),):
         raise ValueError("weights must have shape (n_points,)")
 
@@ -106,7 +112,11 @@ def build_medial_axis_quadratic(
             "curve, m_plus, and m_minus must have the same number of nodes"
         )
 
-    w = vertex_integration_weights(gamma) if weights is None else np.asarray(weights)
+    w = (
+        vertex_integration_weights(gamma)
+        if weights is None
+        else np.asarray(weights)
+    )
     if w.shape != (len(gamma),):
         raise ValueError("weights must have shape (n_points,)")
 
@@ -258,7 +268,9 @@ def optimize_curve_newton(
             max_binary_steps=max_binary_steps,
             initial_radius_scale=initial_radius_scale,
         )
-        A, linear_len = build_length_quadratic(curve, length_weight=length_weight)
+        A, linear_len = build_length_quadratic(
+            curve, length_weight=length_weight
+        )
         H, v, c = combine_with_length_quadratic(
             A, linear_len, medial.quadratic, alpha=alpha
         )
@@ -284,7 +296,10 @@ def optimize_curve_newton(
                 0.5 * projected_x @ H.dot(projected_x) + v @ projected_x + c
             )
 
-            if candidate_energy <= current_energy + armijo_c1 * t * grad_dot_delta:
+            if (
+                candidate_energy
+                <= current_energy + armijo_c1 * t * grad_dot_delta
+            ):
                 accepted_x = projected_x
                 accepted_energy = candidate_energy
                 break

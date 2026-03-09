@@ -69,7 +69,9 @@ def _build_closest_point_query(
         curve_indices[:n_curve] = np.arange(n_curve, dtype=np.int64)
 
     kdtree = trimesh.points.PointCloud(points).kdtree
-    return ClosestPointQuery(points=points, curve_indices=curve_indices, kdtree=kdtree)
+    return ClosestPointQuery(
+        points=points, curve_indices=curve_indices, kdtree=kdtree
+    )
 
 
 def _query_nearest(
@@ -122,7 +124,9 @@ def _normalize(v: np.ndarray, eps: float = 1e-12) -> np.ndarray:
     return v / n
 
 
-def _curve_binormals(mesh: trimesh.Trimesh, curve_points: np.ndarray) -> np.ndarray:
+def _curve_binormals(
+    mesh: trimesh.Trimesh, curve_points: np.ndarray
+) -> np.ndarray:
     vertex_normals = np.asarray(mesh.vertex_normals, dtype=np.float64)
     _, nearest_vertex = mesh.kdtree.query(curve_points)
     surf_normals = vertex_normals[np.asarray(nearest_vertex, dtype=np.int64)]
@@ -144,7 +148,9 @@ def _curve_binormals(mesh: trimesh.Trimesh, curve_points: np.ndarray) -> np.ndar
                 axis = np.array([0.0, 1.0, 0.0], dtype=np.float64)
             b = _normalize(np.cross(tangent, axis))
         if np.linalg.norm(b) <= 1e-12:
-            b = _normalize(curr_pt - np.asarray(mesh.center_mass, dtype=np.float64))
+            b = _normalize(
+                curr_pt - np.asarray(mesh.center_mass, dtype=np.float64)
+            )
         binormals[i] = b
     return binormals
 
@@ -245,7 +251,9 @@ def compute_implicit_medial_axis(
     cpq = _build_closest_point_query(mesh, curve_points)
     binormals = _curve_binormals(mesh, curve_points)
 
-    edge_len = np.linalg.norm(np.roll(curve_points, -1, axis=0) - curve_points, axis=1)
+    edge_len = np.linalg.norm(
+        np.roll(curve_points, -1, axis=0) - curve_points, axis=1
+    )
     median_edge = float(np.median(edge_len))
     base_radius = max(initial_radius_scale * median_edge, tolerance)
 

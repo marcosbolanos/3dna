@@ -75,7 +75,9 @@ def main() -> None:
     )
     print("Surface projection backend: C++")
 
-    initial_curve = initialize_ring_on_surface(mesh=mesh, n_points=args.n_points)
+    initial_curve = initialize_ring_on_surface(
+        mesh=mesh, n_points=args.n_points
+    )
     result = optimize_curve_newton(
         mesh=mesh,
         initial_curve=initial_curve,

@@ -4,7 +4,7 @@ import numpy as np
 import trimesh
 
 from threedna.surface_projection import project_points_to_mesh
-from threedna._geodesic_cpp import GeodesicMesh as _GeodesicMesh
+from threedna._bindings._geodesic_cpp import GeodesicMesh as _GeodesicMesh
 
 
 @dataclass(frozen=True)
