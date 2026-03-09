@@ -86,3 +86,11 @@ target_link_libraries(threedna_cpp PRIVATE
 target_include_directories(threedna_cpp PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
 )
+
+# Test executable for geodesics
+add_executable(test_geodesic test_geodesic.cpp)
+target_link_libraries(test_geodesic PRIVATE
+  geometry-central
+  Eigen3::Eigen
+)
+target_compile_features(test_geodesic PRIVATE cxx_std_17)
