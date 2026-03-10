@@ -44,10 +44,40 @@ def _as_points_3d(name: str, array: np.ndarray) -> np.ndarray:
     elif arr.shape[1] == 3:
         points = arr
     else:
-        raise ValueError(
-            f"{name} must have shape (3, n_points) or (n_points, 3)"
-        )
+        raise ValueError(f"{name} must have shape (3, n_points) or (n_points, 3)")
     return points
+
+
+def _resample_closed_curve_uniform(
+    curve: np.ndarray,
+    n_points: int,
+) -> np.ndarray:
+    points = _as_points_3d("curve", curve)
+    if n_points < 3:
+        raise ValueError("n_points must be >= 3")
+    if len(points) < 3:
+        raise ValueError("curve must contain at least 3 points")
+
+    edge = np.roll(points, -1, axis=0) - points
+    edge_len = np.linalg.norm(edge, axis=1)
+    total_len = float(np.sum(edge_len))
+    if total_len <= 0.0:
+        raise ValueError("curve has zero total length")
+
+    cumulative = np.concatenate(([0.0], np.cumsum(edge_len)))
+    samples = np.linspace(0.0, total_len, num=n_points, endpoint=False)
+    out = np.empty((n_points, 3), dtype=np.float64)
+
+    for i, dist in enumerate(samples):
+        seg_idx = int(np.searchsorted(cumulative, dist, side="right") - 1)
+        seg_idx = min(seg_idx, len(edge_len) - 1)
+        seg_len = edge_len[seg_idx]
+        if seg_len <= 1e-12:
+            out[i] = points[seg_idx]
+            continue
+        t = (dist - cumulative[seg_idx]) / seg_len
+        out[i] = (1.0 - t) * points[seg_idx] + t * points[(seg_idx + 1) % len(points)]
+    return out
 
 
 def vertex_integration_weights(curve: np.ndarray) -> np.ndarray:
@@ -80,11 +110,7 @@ def medial_axis_energy(
             "curve, m_plus, and m_minus must have the same number of nodes"
         )
 
-    w = (
-        vertex_integration_weights(gamma)
-        if weights is None
-        else np.asarray(weights)
-    )
+    w = vertex_integration_weights(gamma) if weights is None else np.asarray(weights)
     if w.shape != (len(gamma),):
         raise ValueError("weights must have shape (n_points,)")
 
@@ -112,11 +138,7 @@ def build_medial_axis_quadratic(
             "curve, m_plus, and m_minus must have the same number of nodes"
         )
 
-    w = (
-        vertex_integration_weights(gamma)
-        if weights is None
-        else np.asarray(weights)
-    )
+    w = vertex_integration_weights(gamma) if weights is None else np.asarray(weights)
     if w.shape != (len(gamma),):
         raise ValueError("weights must have shape (n_points,)")
 
@@ -268,9 +290,7 @@ def optimize_curve_newton(
             max_binary_steps=max_binary_steps,
             initial_radius_scale=initial_radius_scale,
         )
-        A, linear_len = build_length_quadratic(
-            curve, length_weight=length_weight
-        )
+        A, linear_len = build_length_quadratic(curve, length_weight=length_weight)
         H, v, c = combine_with_length_quadratic(
             A, linear_len, medial.quadratic, alpha=alpha
         )
@@ -291,15 +311,17 @@ def optimize_curve_newton(
             candidate_x = x + t * delta
             candidate_curve = candidate_x.reshape(-1, 3)
             projected_curve = project_points_to_mesh(mesh, candidate_curve)
+            projected_curve = _resample_closed_curve_uniform(
+                projected_curve,
+                n_points=len(projected_curve),
+            )
+            projected_curve = project_points_to_mesh(mesh, projected_curve)
             projected_x = projected_curve.reshape(-1)
             candidate_energy = float(
                 0.5 * projected_x @ H.dot(projected_x) + v @ projected_x + c
             )
 
-            if (
-                candidate_energy
-                <= current_energy + armijo_c1 * t * grad_dot_delta
-            ):
+            if candidate_energy <= current_energy + armijo_c1 * t * grad_dot_delta:
                 accepted_x = projected_x
                 accepted_energy = candidate_energy
                 break
