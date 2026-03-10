@@ -11,12 +11,18 @@
 #include <geometrycentral/surface/exact_geodesics.h>
 #include <geometrycentral/surface/surface_point.h>
 
+#include <cmath>
+#include <stdexcept>
+
 namespace py = pybind11;
 using namespace geometrycentral;
 using namespace surface;
 
-// Use Eigen::Map to avoid Vector3 conflicts
-// We'll convert to geometry-central types internally
+struct SurfacePointData {
+    int type = 0;
+    int index = 0;
+    Eigen::Vector3d coords = Eigen::Vector3d::Zero();
+};
 
 
 class GeodesicMesh {
@@ -55,41 +61,69 @@ public:
         return result;
     }
 
-    // Trace exact geodesic path from source vertex to target vertex
-    // Returns path as list of (type, index, barycentric) tuples
-    // type: 0=vertex, 1=edge, 2=face
+    SurfacePointData make_vertex_point(int vertex_idx) const {
+        validate_vertex_index(vertex_idx);
+        SurfacePointData out;
+        out.type = 0;
+        out.index = vertex_idx;
+        return out;
+    }
+
+    SurfacePointData make_edge_point(int edge_idx, double t_edge) const {
+        validate_edge_index(edge_idx);
+        if (t_edge < 0.0 || t_edge > 1.0) {
+            throw std::invalid_argument("edge parameter t must be in [0, 1]");
+        }
+        SurfacePointData out;
+        out.type = 1;
+        out.index = edge_idx;
+        out.coords = Eigen::Vector3d(t_edge, 0.0, 0.0);
+        return out;
+    }
+
+    SurfacePointData make_face_point(int face_idx, double b0, double b1, double b2) const {
+        validate_face_index(face_idx);
+        const double sum = b0 + b1 + b2;
+        if (std::abs(sum - 1.0) > 1e-6) {
+            throw std::invalid_argument("face barycentric coordinates must sum to 1");
+        }
+        SurfacePointData out;
+        out.type = 2;
+        out.index = face_idx;
+        out.coords = Eigen::Vector3d(b0, b1, b2);
+        return out;
+    }
+
+    std::vector<SurfacePointData> trace_path_points(
+        const SurfacePointData& source,
+        const SurfacePointData& target
+    ) {
+        const SurfacePoint source_sp = to_surface_point(source);
+        const SurfacePoint target_sp = to_surface_point(target);
+        solver->propagate({source_sp});
+        const auto path = solver->traceBack(target_sp);
+
+        std::vector<SurfacePointData> result;
+        result.reserve(path.size());
+        for (const auto& sp : path) {
+            result.push_back(from_surface_point(sp));
+        }
+        return result;
+    }
+
     std::vector<std::tuple<int, int, Eigen::Vector3d>> trace_path(int source_idx, int target_idx) {
-        // First propagate from source
-        solver->propagate({SurfacePoint(mesh->vertex(source_idx))});
-        
-        // Then trace back to target
-        auto path = solver->traceBack(SurfacePoint(mesh->vertex(target_idx)));
-        
+        const SurfacePointData source = make_vertex_point(source_idx);
+        const SurfacePointData target = make_vertex_point(target_idx);
+        const auto path = trace_path_points(source, target);
+
         std::vector<std::tuple<int, int, Eigen::Vector3d>> result;
         result.reserve(path.size());
-        
         for (const auto& sp : path) {
-            Eigen::Vector3d bary(0, 0, 0);
-            int type, idx;
-            
-            switch (sp.type) {
-                case SurfacePointType::Vertex:
-                    type = 0;
-                    idx = sp.vertex.getIndex();
-                    bary = Eigen::Vector3d(1, 0, 0);
-                    break;
-                case SurfacePointType::Edge:
-                    type = 1;
-                    idx = sp.edge.getIndex();
-                    bary = Eigen::Vector3d(1 - sp.tEdge, sp.tEdge, 0);
-                    break;
-                case SurfacePointType::Face:
-                    type = 2;
-                    idx = sp.face.getIndex();
-                    bary = Eigen::Vector3d(sp.faceCoords.x, sp.faceCoords.y, sp.faceCoords.z);
-                    break;
+            if (sp.type == 1) {
+                result.emplace_back(sp.type, sp.index, Eigen::Vector3d(1.0 - sp.coords[0], sp.coords[0], 0.0));
+            } else {
+                result.emplace_back(sp.type, sp.index, sp.coords);
             }
-            result.emplace_back(type, idx, bary);
         }
         return result;
     }
@@ -135,6 +169,68 @@ public:
     }
 
 private:
+    void validate_vertex_index(int idx) const {
+        if (idx < 0 || idx >= static_cast<int>(mesh->nVertices())) {
+            throw std::out_of_range("vertex index out of range");
+        }
+    }
+
+    void validate_edge_index(int idx) const {
+        if (idx < 0 || idx >= static_cast<int>(mesh->nEdges())) {
+            throw std::out_of_range("edge index out of range");
+        }
+    }
+
+    void validate_face_index(int idx) const {
+        if (idx < 0 || idx >= static_cast<int>(mesh->nFaces())) {
+            throw std::out_of_range("face index out of range");
+        }
+    }
+
+    SurfacePoint to_surface_point(const SurfacePointData& sp) const {
+        switch (sp.type) {
+            case 0:
+                validate_vertex_index(sp.index);
+                return SurfacePoint(mesh->vertex(static_cast<size_t>(sp.index)));
+            case 1:
+                validate_edge_index(sp.index);
+                if (sp.coords[0] < 0.0 || sp.coords[0] > 1.0) {
+                    throw std::invalid_argument("edge parameter t must be in [0, 1]");
+                }
+                return SurfacePoint(mesh->edge(static_cast<size_t>(sp.index)), sp.coords[0]);
+            case 2:
+                validate_face_index(sp.index);
+                return SurfacePoint(
+                    mesh->face(static_cast<size_t>(sp.index)),
+                    geometrycentral::Vector3{sp.coords[0], sp.coords[1], sp.coords[2]}
+                );
+            default:
+                throw std::invalid_argument("surface point type must be 0 (vertex), 1 (edge), or 2 (face)");
+        }
+    }
+
+    SurfacePointData from_surface_point(const SurfacePoint& sp) const {
+        SurfacePointData out;
+        switch (sp.type) {
+            case SurfacePointType::Vertex:
+                out.type = 0;
+                out.index = static_cast<int>(sp.vertex.getIndex());
+                out.coords = Eigen::Vector3d::Zero();
+                break;
+            case SurfacePointType::Edge:
+                out.type = 1;
+                out.index = static_cast<int>(sp.edge.getIndex());
+                out.coords = Eigen::Vector3d(sp.tEdge, 0.0, 0.0);
+                break;
+            case SurfacePointType::Face:
+                out.type = 2;
+                out.index = static_cast<int>(sp.face.getIndex());
+                out.coords = Eigen::Vector3d(sp.faceCoords.x, sp.faceCoords.y, sp.faceCoords.z);
+                break;
+        }
+        return out;
+    }
+
     std::unique_ptr<ManifoldSurfaceMesh> mesh;
     std::unique_ptr<VertexPositionGeometry> geom;
     std::unique_ptr<GeodesicAlgorithmExact> solver;
@@ -143,6 +239,12 @@ private:
 
 PYBIND11_MODULE(_geodesic_cpp, m) {
     m.doc() = "Exact geodesic computations using geometry-central";
+
+    py::class_<SurfacePointData>(m, "SurfacePoint")
+        .def(py::init<>())
+        .def_readwrite("type", &SurfacePointData::type)
+        .def_readwrite("index", &SurfacePointData::index)
+        .def_readwrite("coords", &SurfacePointData::coords);
 
     py::class_<GeodesicMesh>(m, "GeodesicMesh")
         .def(py::init<const Eigen::MatrixXd&, const Eigen::MatrixXi&>(),
@@ -154,9 +256,16 @@ PYBIND11_MODULE(_geodesic_cpp, m) {
         .def("vertex_positions", &GeodesicMesh::vertex_positions)
         .def("face_vertex_indices", &GeodesicMesh::face_vertex_indices)
         .def("edge_vertex_indices", &GeodesicMesh::edge_vertex_indices)
+        .def("make_vertex_point", &GeodesicMesh::make_vertex_point, py::arg("vertex"))
+        .def("make_edge_point", &GeodesicMesh::make_edge_point, py::arg("edge"), py::arg("t"))
+        .def("make_face_point", &GeodesicMesh::make_face_point,
+             py::arg("face"), py::arg("b0"), py::arg("b1"), py::arg("b2"))
         .def("distance_from_vertices", &GeodesicMesh::distance_from_vertices,
              "Compute geodesic distances from source vertices to all vertices",
              py::arg("sources"))
+        .def("trace_path_points", &GeodesicMesh::trace_path_points,
+             "Trace exact geodesic path between arbitrary surface points",
+             py::arg("source"), py::arg("target"))
         .def("trace_path", &GeodesicMesh::trace_path,
              "Trace exact geodesic path from source to target vertex",
              py::arg("source"), py::arg("target"));

@@ -9,3 +9,8 @@ def project_points_to_mesh(
     faces: numpy.ndarray,
     points: numpy.ndarray,
 ) -> numpy.ndarray: ...
+def project_points_to_surface_points(
+    vertices: numpy.ndarray,
+    faces: numpy.ndarray,
+    points: numpy.ndarray,
+) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]: ...

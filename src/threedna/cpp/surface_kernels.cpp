@@ -3,6 +3,9 @@
 #include <limits>
 #include <stdexcept>
 
+#include <Eigen/Core>
+#include <igl/point_mesh_squared_distance.h>
+#include <pybind11/eigen.h>
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 
@@ -30,6 +33,30 @@ double dot(const Vec3& a, const Vec3& b) {
 
 double squared_norm(const Vec3& a) {
   return dot(a, a);
+}
+
+Vec3 barycentric_coordinates(
+  const Vec3& p,
+  const Vec3& a,
+  const Vec3& b,
+  const Vec3& c
+) {
+  const Vec3 v0 = sub(b, a);
+  const Vec3 v1 = sub(c, a);
+  const Vec3 v2 = sub(p, a);
+  const double d00 = dot(v0, v0);
+  const double d01 = dot(v0, v1);
+  const double d11 = dot(v1, v1);
+  const double d20 = dot(v2, v0);
+  const double d21 = dot(v2, v1);
+  const double denom = d00 * d11 - d01 * d01;
+  if (std::abs(denom) < 1e-20) {
+    return {1.0, 0.0, 0.0};
+  }
+  const double v = (d11 * d20 - d01 * d21) / denom;
+  const double w = (d00 * d21 - d01 * d20) / denom;
+  const double u = 1.0 - v - w;
+  return {u, v, w};
 }
 
 Vec3 closest_point_on_triangle(
@@ -152,12 +179,68 @@ py::array_t<double> project_points_to_mesh(
   return out;
 }
 
+py::tuple project_points_to_surface_points(
+  const Eigen::Ref<const Eigen::MatrixXd>& vertices,
+  const Eigen::Ref<const Eigen::MatrixXi>& faces,
+  const Eigen::Ref<const Eigen::MatrixXd>& points
+) {
+  if (vertices.cols() != 3) {
+    throw std::invalid_argument("vertices must have shape (n_vertices, 3)");
+  }
+  if (faces.cols() != 3) {
+    throw std::invalid_argument("faces must have shape (n_faces, 3)");
+  }
+  if (points.cols() != 3) {
+    throw std::invalid_argument("points must have shape (n_points, 3)");
+  }
+  if (faces.rows() == 0) {
+    throw std::invalid_argument("mesh has no faces");
+  }
+
+  const int n_vertices = static_cast<int>(vertices.rows());
+  for (int f = 0; f < faces.rows(); ++f) {
+    for (int j = 0; j < 3; ++j) {
+      const int idx = faces(f, j);
+      if (idx < 0 || idx >= n_vertices) {
+        throw std::invalid_argument("faces contain out-of-range vertex indices");
+      }
+    }
+  }
+
+  Eigen::VectorXd sqr_d;
+  Eigen::VectorXi face_ids;
+  Eigen::MatrixXd closest;
+  igl::point_mesh_squared_distance(points, vertices, faces, sqr_d, face_ids, closest);
+
+  Eigen::MatrixXd bary(points.rows(), 3);
+  for (int i = 0; i < points.rows(); ++i) {
+    const int f = face_ids(i);
+    const Vec3 a = {vertices(faces(f, 0), 0), vertices(faces(f, 0), 1), vertices(faces(f, 0), 2)};
+    const Vec3 b = {vertices(faces(f, 1), 0), vertices(faces(f, 1), 1), vertices(faces(f, 1), 2)};
+    const Vec3 c = {vertices(faces(f, 2), 0), vertices(faces(f, 2), 1), vertices(faces(f, 2), 2)};
+    const Vec3 p = {closest(i, 0), closest(i, 1), closest(i, 2)};
+    const Vec3 bc = barycentric_coordinates(p, a, b, c);
+    bary(i, 0) = bc[0];
+    bary(i, 1) = bc[1];
+    bary(i, 2) = bc[2];
+  }
+
+  return py::make_tuple(face_ids, bary, closest);
+}
+
 }  // namespace
 
 PYBIND11_MODULE(_surface_kernels_cpp, m) {
   m.def(
     "project_points_to_mesh",
     &project_points_to_mesh,
+    py::arg("vertices"),
+    py::arg("faces"),
+    py::arg("points")
+  );
+  m.def(
+    "project_points_to_surface_points",
+    &project_points_to_surface_points,
     py::arg("vertices"),
     py::arg("faces"),
     py::arg("points")
